@@ -131,8 +131,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 *Бот для подготовки отчетности ИП на УСН (Доходы 6%)*\n\n"
         "1️⃣ Загрузите выписки с расчетных счетов (Excel)\n"
-        "2️⃣ Загрузите выписку с ЕНС (CSV)\n"
-        "3️⃣ Укажите номер телефона\n\n"
+        "2️⃣ Загрузите выписку с ЕНС (CSV)\n\n"
         "📌 *Сроки за 2025 год:*\n"
         "• Декларацию сдать до *27 апреля 2026*\n"
         "• Налог уплатить до *28 апреля 2026*",
@@ -171,8 +170,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 await update.message.reply_text(msg)
                 
-                # Проверяем, что еще нужно
-                await check_missing_data(update, session)
+                # Если ЕНС уже загружена, проверяем данные
+                if session.ens_loaded:
+                    await ask_missing_data(update, session)
             else:
                 await update.message.reply_text(f"⚠️ В выписке из {bank_name} не найдено доходов")
         
@@ -195,7 +195,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(msg)
             
-            await check_missing_data(update, session)
+            # После ЕНС проверяем, чего не хватает
+            await ask_missing_data(update, session)
         
         else:
             await update.message.reply_text("❌ Поддерживаются .xlsx, .xls, .csv")
@@ -208,32 +209,26 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.unlink(tmp_path)
 
 
-async def check_missing_data(update: Update, session):
-    """Проверяет, каких данных не хватает, и запрашивает их"""
+async def ask_missing_data(update: Update, session):
+    """Спрашивает недостающие данные после загрузки всех выписок"""
     
-    # Проверяем ФИО
-    if not session.fio:
-        session.awaiting_fio = True
+    # Проверяем, есть ли выписки банков и ЕНС
+    if not session.bank_operations:
+        return  # Еще нет банковских выписок
+    if not session.ens_loaded:
+        return  # Еще нет выписки ЕНС
+    
+    # Сначала телефон
+    if not session.phone:
+        session.awaiting_phone = True
         await update.message.reply_text(
-            "📝 *Не удалось определить ФИО из выписки*\n"
-            "Введите полностью: *Фамилия Имя Отчество*\n\n"
-            "Например: *Иванов Иван Иванович*",
+            "📞 *Укажите контактный телефон*\n"
+            "Например: *89261234567*",
             parse_mode="Markdown"
         )
         return
     
-    # Проверяем ИНН
-    if not session.inn:
-        session.awaiting_inn = True
-        await update.message.reply_text(
-            "📝 *Не удалось определить ИНН из выписки*\n"
-            "Введите 12 цифр ИНН:\n\n"
-            "Например: *632312967829*",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Проверяем ОКТМО (если нет или устаревший)
+    # Потом ОКТМО (если нет или устаревший)
     if not session.oktmo or session.oktmo == "36701320":
         session.awaiting_oktmo = True
         await update.message.reply_text(
@@ -244,24 +239,23 @@ async def check_missing_data(update: Update, session):
         )
         return
     
-    # Проверяем телефон
-    if not session.phone:
-        session.awaiting_phone = True
+    # Потом ФИО
+    if not session.fio:
+        session.awaiting_fio = True
         await update.message.reply_text(
-            "📞 *Укажите контактный телефон*\n"
-            "Например: *89261234567*",
+            "📝 *Укажите ФИО полностью*\n"
+            "Например: *Иванов Иван Иванович*",
             parse_mode="Markdown"
         )
         return
     
     # Если все данные есть, формируем отчет
-    if session.bank_operations and session.ens_loaded:
-        await update.message.reply_text("✅ Все данные получены! Формирую отчетность...")
-        await generate_and_send_report(update, session)
+    await update.message.reply_text("✅ Все данные получены! Формирую декларацию...")
+    await generate_and_send_report(update, session)
 
 
 async def generate_and_send_report(update: Update, session):
-    """Формирует и отправляет отчетность"""
+    """Формирует и отправляет декларацию"""
     user_id = session.user_id
     
     try:
@@ -285,7 +279,7 @@ async def generate_and_send_report(update: Update, session):
         ip_accounts = session.ip_accounts
         phone = session.phone
         
-        # Формируем декларацию (без КУДиР)
+        # Формируем декларацию
         decl_excel, decl_xml, total_income, tax_payable = generate_report(
             all_ops, session.ens_data, OUTPUT_DIR, user_id,
             decl_template, inn, fio, oktmo, ip_accounts, phone
@@ -322,27 +316,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     text = update.message.text.strip()
     
-    # Обработка ФИО
-    if session.awaiting_fio:
-        if len(text.split()) >= 2:
-            session.fio = text
-            session.awaiting_fio = False
-            await update.message.reply_text(f"✅ ФИО сохранено: {text}")
-            await check_missing_data(update, session)
+    # Обработка телефона
+    if session.awaiting_phone:
+        phone_digits = ''.join(ch for ch in text if ch.isdigit())
+        if phone_digits:
+            session.phone = phone_digits
+            session.awaiting_phone = False
+            await update.message.reply_text(f"✅ Телефон сохранен: {phone_digits}")
+            await ask_missing_data(update, session)
         else:
-            await update.message.reply_text("❌ Введите полное ФИО (Фамилия Имя Отчество)")
-        return
-    
-    # Обработка ИНН
-    if session.awaiting_inn:
-        inn_digits = ''.join(ch for ch in text if ch.isdigit())
-        if len(inn_digits) == 12:
-            session.inn = inn_digits
-            session.awaiting_inn = False
-            await update.message.reply_text(f"✅ ИНН сохранен: {inn_digits}")
-            await check_missing_data(update, session)
-        else:
-            await update.message.reply_text("❌ ИНН должен содержать 12 цифр")
+            await update.message.reply_text("❌ Введите номер телефона цифрами")
         return
     
     # Обработка ОКТМО
@@ -352,21 +335,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.oktmo = oktmo_digits[:8]
             session.awaiting_oktmo = False
             await update.message.reply_text(f"✅ ОКТМО сохранен: {session.oktmo}")
-            await check_missing_data(update, session)
+            await ask_missing_data(update, session)
         else:
             await update.message.reply_text("❌ ОКТМО должен содержать 8 или 11 цифр")
         return
     
-    # Обработка телефона
-    if session.awaiting_phone:
-        phone_digits = ''.join(ch for ch in text if ch.isdigit())
-        if phone_digits:
-            session.phone = phone_digits
-            session.awaiting_phone = False
-            await update.message.reply_text(f"✅ Телефон сохранен: {phone_digits}")
-            await check_missing_data(update, session)
+    # Обработка ФИО
+    if session.awaiting_fio:
+        if len(text.split()) >= 2:
+            session.fio = text
+            session.awaiting_fio = False
+            await update.message.reply_text(f"✅ ФИО сохранено: {text}")
+            await ask_missing_data(update, session)
         else:
-            await update.message.reply_text("❌ Введите номер телефона цифрами")
+            await update.message.reply_text("❌ Введите полное ФИО (Фамилия Имя Отчество)")
         return
 
 
