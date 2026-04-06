@@ -30,6 +30,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
 user_sessions = {}
+bank_upload_tracker = {}  # {user_id: {"count": 0, "total_income": 0, "last_update": timestamp}}
 
 
 def load_users():
@@ -470,8 +471,22 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 total = sum(op['amount'] for op in operations)
                 total_all = sum(op['amount'] for op in session.bank_operations)
                 
-                msg = f"✅ {bank_name}: {len(operations)} операций, {total:,.2f} ₽\n📊 Всего: {len(session.bank_operations)} операций на {total_all:,.2f} ₽"
-                await update.message.reply_text(msg, reply_markup=get_main_keyboard(user_id))
+                # Показываем краткий результат по текущему файлу
+                await update.message.reply_text(
+                    f"✅ {bank_name}: {len(operations)} операций, {total:,.2f} ₽",
+                    reply_markup=get_main_keyboard(user_id)
+                )
+                
+                # Если ЕНС еще не загружена, показываем итог по всем банкам и просим ЕНС
+                if not session.ens_loaded:
+                    await update.message.reply_text(
+                        f"📊 *Итог по банковским выпискам:*\n"
+                        f"• Количество файлов: {len(session.bank_files)}\n"
+                        f"• Доход за 2025: {total_all:,.2f} ₽\n\n"
+                        f"📎 *Теперь пришлите выписку из ЕНС (CSV)*\n"
+                        f"Ее можно скачать в личном кабинете налогоплательщика",
+                        parse_mode="Markdown"
+                    )
             else:
                 await update.message.reply_text(f"⚠️ В выписке из {bank_name} не найдено доходов")
         
@@ -480,7 +495,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ens_data = parse_ens_statement(tmp_path)
             session.set_ens_data(ens_data)
             
-            # Подсчитываем итоги
             total_income = sum(op['amount'] for op in session.bank_operations)
             paid_in_2025 = any(d.year == 2025 for d in ens_data.get('insurance_paid_dates', []))
             
