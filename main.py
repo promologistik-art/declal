@@ -63,19 +63,16 @@ class UserSession:
             'insurance_paid': 0,
             'insurance_paid_dates': [],
             'penalties': 0,
-            'usn_payments': [],
-            'tax_object': None
+            'usn_payments': []
         }
         self.ens_loaded = False
         self.inn = ""
         self.fio = ""
         self.oktmo = ""
-        self.tax_object = None
         self.ip_accounts = []
         self.phone = ""
         self.awaiting_phone = False
         self.awaiting_oktmo = False
-        self.awaiting_tax_object = False
         self.awaiting_fio = False
         self.awaiting_inn = False
 
@@ -97,10 +94,13 @@ class UserSession:
     def set_ens_data(self, data):
         self.ens_data = data
         self.ens_loaded = True
+        # Берем ОКТМО из выписки, если он есть и не устаревший
         if 'oktmo' in data and data['oktmo']:
-            self.oktmo = data['oktmo']
-        if 'tax_object' in data and data['tax_object']:
-            self.tax_object = data['tax_object']
+            oktmo_val = data['oktmo']
+            # Заменяем устаревший код
+            if oktmo_val == "36701320":
+                oktmo_val = "36701000"
+            self.oktmo = oktmo_val
 
     def reset(self):
         self.bank_operations = []
@@ -110,19 +110,16 @@ class UserSession:
             'insurance_paid': 0,
             'insurance_paid_dates': [],
             'penalties': 0,
-            'usn_payments': [],
-            'tax_object': None
+            'usn_payments': []
         }
         self.ens_loaded = False
         self.inn = ""
         self.fio = ""
         self.oktmo = ""
-        self.tax_object = None
         self.ip_accounts = []
         self.phone = ""
         self.awaiting_phone = False
         self.awaiting_oktmo = False
-        self.awaiting_tax_object = False
         self.awaiting_fio = False
         self.awaiting_inn = False
 
@@ -132,15 +129,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[user_id] = UserSession(user_id)
     
     await update.message.reply_text(
-        "🤖 *Бот для подготовки отчетности ИП на УСН*\n\n"
+        "🤖 *Бот для подготовки отчетности ИП на УСН (Доходы 6%)*\n\n"
         "1️⃣ Загрузите выписки с расчетных счетов (Excel)\n"
         "2️⃣ Загрузите выписку с ЕНС (CSV)\n"
         "3️⃣ Укажите номер телефона\n\n"
         "📌 *Сроки за 2025 год:*\n"
         "• Декларацию сдать до *27 апреля 2026*\n"
-        "• Налог уплатить до *28 апреля 2026*\n\n"
-        "💰 *Демо-версия* — бесплатно (только Титул и Раздел 1.1)\n"
-        "💰 *Полная версия* — 500 ₽ (все разделы + XML + КУДиР)",
+        "• Налог уплатить до *28 апреля 2026*",
         parse_mode="Markdown"
     )
 
@@ -188,7 +183,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             paid_in_2025 = any(d.year == 2025 for d in ens_data.get('insurance_paid_dates', []))
             oktmo = session.oktmo if session.oktmo else "не найден"
-            tax_object = session.tax_object if session.tax_object else "не определен"
+            usn_payments = ens_data.get('usn_payments', [])
             
             msg = f"✅ Выписка ЕНС обработана!\n\n"
             msg += f"📌 Страховые взносы:\n"
@@ -196,8 +191,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"• Уплачено: {ens_data['insurance_paid']:,.2f} ₽\n"
             msg += f"• Уплачено в 2025: {'Да' if paid_in_2025 else 'Нет'}\n"
             msg += f"• ОКТМО: {oktmo}\n"
-            msg += f"• Авансов по УСН: {len(ens_data['usn_payments'])}\n"
-            msg += f"• Объект налогообложения: {'Доходы (6%)' if tax_object == 1 else 'Доходы минус расходы (15%)' if tax_object == 2 else 'не определен'}\n"
+            msg += f"• Авансов по УСН: {len(usn_payments)}\n"
             
             await update.message.reply_text(msg)
             
@@ -239,25 +233,13 @@ async def check_missing_data(update: Update, session):
         )
         return
     
-    # Проверяем ОКТМО
+    # Проверяем ОКТМО (если нет или устаревший)
     if not session.oktmo or session.oktmo == "36701320":
         session.awaiting_oktmo = True
         await update.message.reply_text(
             "📝 *Укажите код ОКТМО*\n"
             "Его можно найти в выписке ЕНС или на сайте ФНС\n\n"
             "Например: *36701000*",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Проверяем объект налогообложения
-    if not session.tax_object:
-        session.awaiting_tax_object = True
-        await update.message.reply_text(
-            "📝 *Выберите объект налогообложения:*\n\n"
-            "1 — Доходы (ставка 6%)\n"
-            "2 — Доходы минус расходы (ставка 15%)\n\n"
-            "Введите *1* или *2*",
             parse_mode="Markdown"
         )
         return
@@ -291,12 +273,7 @@ async def generate_and_send_report(update: Update, session):
                 all_ops.extend(op)
         all_ops.sort(key=lambda x: x['date'])
         
-        kudir_template = os.path.join(TEMPLATES_DIR, "KUDIR_template.xlsx")
         decl_template = os.path.join(TEMPLATES_DIR, "Declaration_template.xlsx")
-        
-        if not os.path.exists(kudir_template):
-            await update.message.reply_text(f"❌ Шаблон КУДиР не найден")
-            return
         
         if not os.path.exists(decl_template):
             await update.message.reply_text(f"❌ Шаблон декларации не найден")
@@ -305,27 +282,23 @@ async def generate_and_send_report(update: Update, session):
         inn = session.inn
         fio = session.fio
         oktmo = session.oktmo
-        tax_object = session.tax_object
         ip_accounts = session.ip_accounts
         phone = session.phone
         
-        # Формируем полную отчетность
-        kudir_path, decl_excel, decl_xml, total_income, tax_payable = generate_report(
+        # Формируем декларацию (без КУДиР)
+        decl_excel, decl_xml, total_income, tax_payable = generate_report(
             all_ops, session.ens_data, OUTPUT_DIR, user_id,
-            kudir_template, decl_template, inn, fio, oktmo, ip_accounts, phone, tax_object
+            decl_template, inn, fio, oktmo, ip_accounts, phone
         )
         
         await update.message.reply_text(
-            f"✅ *Отчетность готова!*\n\n"
+            f"✅ *Декларация готова!*\n\n"
             f"📊 Доход за 2025: {total_income:,.2f} ₽\n"
             f"💰 Налог к уплате: {tax_payable:,.2f} ₽\n\n"
             f"📌 Сдать декларацию до *27 апреля 2026*\n"
             f"📌 Уплатить налог до *28 апреля 2026*",
             parse_mode="Markdown"
         )
-        
-        with open(kudir_path, 'rb') as f:
-            await update.message.reply_document(f, filename="КУДиР_2025.xlsx", caption="📘 Книга учета доходов и расходов")
         
         with open(decl_excel, 'rb') as f:
             await update.message.reply_document(f, filename="Декларация_УСН_2025.xlsx", caption="📝 Декларация по УСН")
@@ -384,22 +357,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ ОКТМО должен содержать 8 или 11 цифр")
         return
     
-    # Обработка объекта налогообложения
-    if session.awaiting_tax_object:
-        if text == "1":
-            session.tax_object = 1
-            session.awaiting_tax_object = False
-            await update.message.reply_text("✅ Выбран объект: Доходы (ставка 6%)")
-            await check_missing_data(update, session)
-        elif text == "2":
-            session.tax_object = 2
-            session.awaiting_tax_object = False
-            await update.message.reply_text("✅ Выбран объект: Доходы минус расходы (ставка 15%)")
-            await check_missing_data(update, session)
-        else:
-            await update.message.reply_text("❌ Введите 1 или 2")
-        return
-    
     # Обработка телефона
     if session.awaiting_phone:
         phone_digits = ''.join(ch for ch in text if ch.isdigit())
@@ -427,11 +384,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 *Помощь*\n\n"
         "/start — начать\n"
         "/reset — сбросить данные\n"
-        "/help — справка\n\n"
-        "💰 *Тарифы:*\n"
-        "• Демо — бесплатно\n"
-        "• Полная версия — 500 ₽\n\n"
-        "По вопросам оплаты пишите @support",
+        "/help — справка",
         parse_mode="Markdown"
     )
 
