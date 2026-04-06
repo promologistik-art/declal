@@ -3,6 +3,7 @@ import warnings
 from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
+from openpyxl.styles import Font
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
@@ -45,6 +46,15 @@ def write_letter(ws, row, col, letter):
     cell = ws.cell(row=target_row, column=target_col)
     cell.value = letter
 
+def write_limited_text(ws, row, start_col):
+    """Записывает текст 'limited' красным цветом"""
+    text = "limited"
+    for i, char in enumerate(text):
+        target_row, target_col = get_merge_start(ws, row, start_col + i)
+        cell = ws.cell(row=target_row, column=target_col)
+        cell.value = char
+        cell.font = Font(color="FF0000")
+
 def write_oktmo_digits(ws, row, start_col, oktmo):
     """Запись ОКТМО (8 цифр) последовательно в ячейки"""
     oktmo_str = str(oktmo).strip()
@@ -58,12 +68,6 @@ def write_amount_digits(ws, row, start_col, amount):
     for i, digit in enumerate(amount_str):
         if i < 12:
             write_digit(ws, row, start_col + i, int(digit))
-
-def write_limited_text(ws, row, start_col):
-    """Записывает текст 'limited' в ячейки (для демо-версии)"""
-    text = "limited"
-    for i, char in enumerate(text):
-        write_letter(ws, row, start_col + i, char)
 
 def write_phone_by_letters(ws, phone):
     """Телефон: U27, W27, Y27, AA27, AC27, AE27, AG27, AI27, AK27, AM27, AO27"""
@@ -320,13 +324,12 @@ def generate_report(operations, ens_data, output_dir, user_id, decl_template, in
     
     # Строка 100 - налог к уплате (Z36)
     if is_full_version:
-        # Полная версия: показываем сумму налога
         if tax_payable > 0:
             write_amount_digits(ws_s11, 36, 26, tax_payable)
         else:
             write_digit(ws_s11, 36, 26, 0)
     else:
-        # Демо-версия: пишем "limited"
+        # Демо-версия: пишем "limited" красным
         write_limited_text(ws_s11, 36, 26)
     
     # Строка 110 - налог к уменьшению (Z41)
