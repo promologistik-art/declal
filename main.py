@@ -197,7 +197,6 @@ class UserSession:
 
 
 async def set_commands(app):
-    """Устанавливает команды для меню слева внизу"""
     commands = [
         ("start", "Начать работу"),
         ("new", "Новая декларация"),
@@ -229,7 +228,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[user_id] = UserSession(user_id)
     
     user_info = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name or ''}"
-    await notify_admin(context, f"🆕 Новый пользователь!\n\n👤 {user_info}\n🆔 ID: `{user_id}`", parse_mode="Markdown")
+    await notify_admin(context, f"Новый пользователь!\n\n👤 {user_info}\n🆔 ID: {user_id}")
     
     await update.message.reply_text(
         "🤖 *Бот для подготовки отчетности ИП на УСН (Доходы 6%)*\n\n"
@@ -252,7 +251,7 @@ async def new_declaration(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_sessions[user_id].reset()
     
     await update.message.reply_text(
-        "🔄 Начинаем новую декларацию!\n\n"
+        "Начинаем новую декларацию!\n\n"
         "1️⃣ Загрузите выписки с расчетных счетов (Excel)\n"
         "2️⃣ Загрузите выписку с ЕНС (CSV)"
     )
@@ -291,15 +290,14 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = update.effective_user
     
-    username_info = f"@{user.username}" if user.username else "❌ Username не указан"
+    username_info = f"@{user.username}" if user.username else "Username не указан"
     
     await notify_admin(
         context,
-        f"📞 *Запрос связи от пользователя*\n\n"
+        f"Запрос связи от пользователя\n\n"
         f"👤 {user.first_name} {user.last_name or ''}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"📱 Username: {username_info}",
-        parse_mode="Markdown"
+        f"🆔 ID: {user_id}\n"
+        f"📱 Username: {username_info}"
     )
     
     await update.message.reply_text(
@@ -318,10 +316,10 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Список пользователей", callback_data="admin_users")],
-        [InlineKeyboardButton("➕ Дать доступ", callback_data="admin_add_access")],
-        [InlineKeyboardButton("📈 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("Список пользователей", callback_data="admin_users")],
+        [InlineKeyboardButton("Дать доступ", callback_data="admin_add_access")],
+        [InlineKeyboardButton("Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")],
     ])
     
     await update.message.reply_text(
@@ -358,8 +356,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 demo += 1
         
-        text = f"📊 *Статистика пользователей*\n\n✅ Платных: {paid}\n⚠️ Демо: {demo}\n📊 Всего: {len(users)}"
-        await query.edit_message_text(text, parse_mode="Markdown")
+        text = f"Статистика пользователей\n\n✅ Платных: {paid}\n⚠️ Демо: {demo}\n📊 Всего: {len(users)}"
+        await query.edit_message_text(text)
         
         back_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="admin_back")]
@@ -368,11 +366,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data == "admin_add_access":
         await query.edit_message_text(
-            "📝 *Добавление доступа*\n\n"
+            "Добавление доступа\n\n"
             "Введите команду:\n"
             "/add <user_id> <days>\n\n"
-            "Пример: /add 123456789 30",
-            parse_mode="Markdown"
+            "Пример: /add 123456789 30"
         )
     
     elif query.data == "admin_stats":
@@ -382,8 +379,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if uid in user_sessions:
                 total_ops += len(user_sessions[uid].bank_operations)
         
-        text = f"📈 *Статистика*\n\n👥 Пользователей: {len(users)}\n💳 Операций обработано: {total_ops}\n💰 Цена подписки: {SUBSCRIPTION_PRICE}₽/мес"
-        await query.edit_message_text(text, parse_mode="Markdown")
+        text = f"Статистика\n\n👥 Пользователей: {len(users)}\n💳 Операций обработано: {total_ops}\n💰 Цена подписки: {SUBSCRIPTION_PRICE}₽/мес"
+        await query.edit_message_text(text)
         
         back_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="admin_back")]
@@ -393,20 +390,18 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "admin_broadcast":
         context.user_data['broadcast_mode'] = True
         await query.edit_message_text(
-            "📢 *Рассылка*\n\nВведите сообщение для рассылки всем пользователям:",
-            parse_mode="Markdown"
+            "Рассылка\n\nВведите сообщение для рассылки всем пользователям:"
         )
     
     elif query.data == "admin_back":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📊 Список пользователей", callback_data="admin_users")],
-            [InlineKeyboardButton("➕ Дать доступ", callback_data="admin_add_access")],
-            [InlineKeyboardButton("📈 Статистика", callback_data="admin_stats")],
-            [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("Список пользователей", callback_data="admin_users")],
+            [InlineKeyboardButton("Дать доступ", callback_data="admin_add_access")],
+            [InlineKeyboardButton("Статистика", callback_data="admin_stats")],
+            [InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")],
         ])
         await query.edit_message_text(
-            "⚙️ *Админ панель*\n\nВыберите действие:",
-            parse_mode="Markdown",
+            "⚙️ Админ панель\n\nВыберите действие:",
             reply_markup=keyboard
         )
 
@@ -432,18 +427,16 @@ async def add_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_user_data(target_user_id, subscription_until=until.isoformat())
     
     await update.message.reply_text(
-        f"✅ Пользователю `{target_user_id}` добавлен доступ на {days} дней\n"
-        f"📅 Действует до: {until.strftime('%d.%m.%Y')}",
-        parse_mode="Markdown"
+        f"✅ Пользователю {target_user_id} добавлен доступ на {days} дней\n"
+        f"📅 Действует до: {until.strftime('%d.%m.%Y')}"
     )
     
     try:
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"🎉 *Вам открыт полный доступ до {until.strftime('%d.%m.%Y')}!*\n\n"
+            text=f"🎉 Вам открыт полный доступ до {until.strftime('%d.%m.%Y')}!\n\n"
                  f"Теперь вы можете получить полную декларацию с XML.\n"
-                 f"Отправьте /new и загрузите выписки.",
-            parse_mode="Markdown"
+                 f"Отправьте /new и загрузите выписки."
         )
     except:
         pass
@@ -510,7 +503,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"• Авансов по УСН: {len(ens_data['usn_payments'])}\n"
             msg += f"• ОКТМО: {session.oktmo if session.oktmo else 'не найден'}\n\n"
             
-            await update.message.reply_text(msg)
+            await update.message.reply_text(msg, parse_mode="Markdown")
             
             await ask_missing_data(update, session)
         
@@ -526,8 +519,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_missing_data(update: Update, session):
-    """Спрашивает недостающие данные после загрузки ЕНС"""
-    
     if not session.phone:
         session.awaiting_phone = True
         await update.message.reply_text(
@@ -731,8 +722,6 @@ def main():
     
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Устанавливаем команды для меню слева внизу
-    app.run_migration = False
     app.post_init = set_commands
     
     app.add_handler(CommandHandler("start", start))
