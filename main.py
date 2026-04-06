@@ -26,33 +26,69 @@ os.makedirs(TEMPLATES_DIR, exist_ok=True)
 user_sessions = {}
 
 
+def is_valid_fio(fio):
+    """Проверяет, что строка похожа на ФИО"""
+    if not fio:
+        return False
+    has_cyrillic = any('\u0400' <= c <= '\u04FF' for c in fio)
+    is_only_digits = all(c.isdigit() or c.isspace() for c in fio)
+    has_space = ' ' in fio
+    return has_cyrillic and not is_only_digits and has_space
+
+
+def detect_bank_name(filename):
+    """Определяет банк по имени файла"""
+    name_lower = filename.lower()
+    if 'ozon' in name_lower:
+        return 'ОЗОН Банк'
+    elif 'vb' in name_lower or 'вб' in name_lower:
+        return 'ВБ Банк'
+    elif 'tinkoff' in name_lower or 'тинькофф' in name_lower:
+        return 'Тинькофф'
+    elif 'sber' in name_lower or 'сбер' in name_lower:
+        return 'Сбербанк'
+    elif 'alfa' in name_lower or 'альфа' in name_lower:
+        return 'Альфа-Банк'
+    else:
+        return 'Банк'
+
+
 class UserSession:
     def __init__(self, user_id):
         self.user_id = user_id
         self.bank_operations = []
+        self.bank_files = []
         self.ens_data = {
             'insurance_accrued': 0,
             'insurance_paid': 0,
             'insurance_paid_dates': [],
             'penalties': 0,
-            'usn_payments': []
+            'usn_payments': [],
+            'tax_object': None
         }
         self.ens_loaded = False
         self.inn = ""
         self.fio = ""
         self.oktmo = ""
+        self.tax_object = None
         self.ip_accounts = []
-        self.okved = ""
         self.phone = ""
-        self.awaiting_okved = False
         self.awaiting_phone = False
+        self.awaiting_oktmo = False
+        self.awaiting_tax_object = False
+        self.awaiting_fio = False
+        self.awaiting_inn = False
 
-    def add_bank_operations(self, operations, inn="", fio="", accounts=None):
+    def add_bank_operations(self, operations, bank_name="", inn="", fio="", accounts=None):
         self.bank_operations.extend(operations)
-        if inn and len(inn) >= 10 and inn.isdigit():
+        self.bank_files.append(bank_name)
+        
+        if inn and len(inn) >= 10 and inn.isdigit() and not self.inn:
             self.inn = inn
-        if fio and len(fio) > 10:
+        
+        if is_valid_fio(fio) and not self.fio:
             self.fio = fio
+        
         if accounts:
             for acc in accounts:
                 if acc['number'] not in [a['number'] for a in self.ip_accounts]:
@@ -63,25 +99,32 @@ class UserSession:
         self.ens_loaded = True
         if 'oktmo' in data and data['oktmo']:
             self.oktmo = data['oktmo']
+        if 'tax_object' in data and data['tax_object']:
+            self.tax_object = data['tax_object']
 
     def reset(self):
         self.bank_operations = []
+        self.bank_files = []
         self.ens_data = {
             'insurance_accrued': 0,
             'insurance_paid': 0,
             'insurance_paid_dates': [],
             'penalties': 0,
-            'usn_payments': []
+            'usn_payments': [],
+            'tax_object': None
         }
         self.ens_loaded = False
         self.inn = ""
         self.fio = ""
         self.oktmo = ""
+        self.tax_object = None
         self.ip_accounts = []
-        self.okved = ""
         self.phone = ""
-        self.awaiting_okved = False
         self.awaiting_phone = False
+        self.awaiting_oktmo = False
+        self.awaiting_tax_object = False
+        self.awaiting_fio = False
+        self.awaiting_inn = False
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,10 +135,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 *Бот для подготовки отчетности ИП на УСН*\n\n"
         "1️⃣ Загрузите выписки с расчетных счетов (Excel)\n"
         "2️⃣ Загрузите выписку с ЕНС (CSV)\n"
-        "3️⃣ Введите /report\n\n"
+        "3️⃣ Укажите номер телефона\n\n"
         "📌 *Сроки за 2025 год:*\n"
         "• Декларацию сдать до *27 апреля 2026*\n"
-        "• Налог уплатить до *28 апреля 2026*",
+        "• Налог уплатить до *28 апреля 2026*\n\n"
+        "💰 *Демо-версия* — бесплатно (только Титул и Раздел 1.1)\n"
+        "💰 *Полная версия* — 500 ₽ (все разделы + XML + КУДиР)",
         parse_mode="Markdown"
     )
 
@@ -118,51 +163,45 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if filename.endswith(('.xlsx', '.xls')):
-            await update.message.reply_text("📥 Обрабатываю выписку из банка...")
+            bank_name = detect_bank_name(filename)
+            await update.message.reply_text(f"📥 Обрабатываю выписку из {bank_name}...")
             operations, inn, fio, accounts = parse_bank_statement(tmp_path)
             
             if operations:
-                session.add_bank_operations(operations, inn, fio, accounts)
+                session.add_bank_operations(operations, bank_name, inn, fio, accounts)
                 total = sum(op['amount'] for op in operations)
                 total_all = sum(op['amount'] for op in session.bank_operations)
                 
-                msg = f"✅ Найдено {len(operations)} операций\n💰 Сумма в файле: {total:,.2f} ₽\n📊 Всего загружено: {len(session.bank_operations)} операций на {total_all:,.2f} ₽"
-                
-                if session.inn:
-                    msg += f"\n🏢 ИНН: {session.inn}"
-                if session.fio:
-                    msg += f"\n👤 ИП: {session.fio}"
-                if session.ip_accounts:
-                    msg += f"\n🏦 Счета: {', '.join([a['number'] for a in session.ip_accounts])}"
+                msg = f"✅ {bank_name}: {len(operations)} операций, {total:,.2f} ₽\n📊 Всего: {len(session.bank_operations)} операций на {total_all:,.2f} ₽"
                 
                 await update.message.reply_text(msg)
-                await update.message.reply_text(
-                    "📌 *Следующий шаг:* загрузите выписку с Единого налогового счета (ЕНС) в формате CSV",
-                    parse_mode="Markdown"
-                )
+                
+                # Проверяем, что еще нужно
+                await check_missing_data(update, session)
             else:
-                await update.message.reply_text("⚠️ В выписке не найдено доходов")
+                await update.message.reply_text(f"⚠️ В выписке из {bank_name} не найдено доходов")
         
         elif filename.endswith('.csv'):
             await update.message.reply_text("📥 Обрабатываю выписку ЕНС...")
             ens_data = parse_ens_statement(tmp_path)
             session.set_ens_data(ens_data)
             
-            paid_in_2025 = any(d.year == 2025 for d in ens_data['insurance_paid_dates'])
-            oktmo = ens_data.get('oktmo', '')
-            usn_payments = ens_data.get('usn_payments', [])
+            paid_in_2025 = any(d.year == 2025 for d in ens_data.get('insurance_paid_dates', []))
+            oktmo = session.oktmo if session.oktmo else "не найден"
+            tax_object = session.tax_object if session.tax_object else "не определен"
             
-            await update.message.reply_text(
-                f"✅ Выписка ЕНС обработана!\n\n"
-                f"📌 Страховые взносы:\n"
-                f"• Начислено: {ens_data['insurance_accrued']:,.2f} ₽\n"
-                f"• Уплачено: {ens_data['insurance_paid']:,.2f} ₽\n"
-                f"• Уплачено в 2025: {'Да' if paid_in_2025 else 'Нет'}\n"
-                f"• Пени: {ens_data['penalties']:,.2f} ₽\n"
-                f"• ОКТМО: {oktmo}\n"
-                f"• Авансов по УСН: {len(usn_payments)}\n\n"
-                f"✅ Теперь введите /report"
-            )
+            msg = f"✅ Выписка ЕНС обработана!\n\n"
+            msg += f"📌 Страховые взносы:\n"
+            msg += f"• Начислено: {ens_data['insurance_accrued']:,.2f} ₽\n"
+            msg += f"• Уплачено: {ens_data['insurance_paid']:,.2f} ₽\n"
+            msg += f"• Уплачено в 2025: {'Да' if paid_in_2025 else 'Нет'}\n"
+            msg += f"• ОКТМО: {oktmo}\n"
+            msg += f"• Авансов по УСН: {len(ens_data['usn_payments'])}\n"
+            msg += f"• Объект налогообложения: {'Доходы (6%)' if tax_object == 1 else 'Доходы минус расходы (15%)' if tax_object == 2 else 'не определен'}\n"
+            
+            await update.message.reply_text(msg)
+            
+            await check_missing_data(update, session)
         
         else:
             await update.message.reply_text("❌ Поддерживаются .xlsx, .xls, .csv")
@@ -175,44 +214,73 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.unlink(tmp_path)
 
 
-async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+async def check_missing_data(update: Update, session):
+    """Проверяет, каких данных не хватает, и запрашивает их"""
     
-    if user_id not in user_sessions:
-        await update.message.reply_text("Сначала загрузите выписки (/start)")
-        return
-    
-    session = user_sessions[user_id]
-    
-    if not session.bank_operations:
-        await update.message.reply_text("⚠️ Сначала загрузите выписки из банков")
-        return
-    
-    if not session.ens_loaded:
-        await update.message.reply_text("⚠️ Сначала загрузите выписку ЕНС")
-        return
-    
-    if not session.okved:
-        session.awaiting_okved = True
+    # Проверяем ФИО
+    if not session.fio:
+        session.awaiting_fio = True
         await update.message.reply_text(
-            "📝 Для заполнения декларации укажите код ОКВЭД\n"
-            "Например: *4791* (торговля по почте/Интернет)\n\n"
-            "Введите только цифры:",
+            "📝 *Не удалось определить ФИО из выписки*\n"
+            "Введите полностью: *Фамилия Имя Отчество*\n\n"
+            "Например: *Иванов Иван Иванович*",
             parse_mode="Markdown"
         )
         return
     
+    # Проверяем ИНН
+    if not session.inn:
+        session.awaiting_inn = True
+        await update.message.reply_text(
+            "📝 *Не удалось определить ИНН из выписки*\n"
+            "Введите 12 цифр ИНН:\n\n"
+            "Например: *632312967829*",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Проверяем ОКТМО
+    if not session.oktmo or session.oktmo == "36701320":
+        session.awaiting_oktmo = True
+        await update.message.reply_text(
+            "📝 *Укажите код ОКТМО*\n"
+            "Его можно найти в выписке ЕНС или на сайте ФНС\n\n"
+            "Например: *36701000*",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Проверяем объект налогообложения
+    if not session.tax_object:
+        session.awaiting_tax_object = True
+        await update.message.reply_text(
+            "📝 *Выберите объект налогообложения:*\n\n"
+            "1 — Доходы (ставка 6%)\n"
+            "2 — Доходы минус расходы (ставка 15%)\n\n"
+            "Введите *1* или *2*",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Проверяем телефон
     if not session.phone:
         session.awaiting_phone = True
         await update.message.reply_text(
-            "📞 Укажите контактный телефон\n"
-            "Например: *89261234567*\n\n"
-            "Введите номер:",
+            "📞 *Укажите контактный телефон*\n"
+            "Например: *89261234567*",
             parse_mode="Markdown"
         )
         return
     
-    await update.message.reply_text("🔄 Формирую отчетность...")
+    # Если все данные есть, формируем отчет
+    if session.bank_operations and session.ens_loaded:
+        await update.message.reply_text("✅ Все данные получены! Формирую отчетность...")
+        await generate_and_send_report(update, session)
+
+
+async def generate_and_send_report(update: Update, session):
+    """Формирует и отправляет отчетность"""
+    user_id = session.user_id
     
     try:
         all_ops = []
@@ -234,22 +302,17 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Шаблон декларации не найден")
             return
         
-        inn = session.inn if session.inn else "632312967829"
-        fio = session.fio if session.fio else "Леонтьев Артём Владиславович"
-        oktmo = session.oktmo if session.oktmo else "36701320"
-        ip_accounts = session.ip_accounts if session.ip_accounts else []
-        okved = session.okved
+        inn = session.inn
+        fio = session.fio
+        oktmo = session.oktmo
+        tax_object = session.tax_object
+        ip_accounts = session.ip_accounts
         phone = session.phone
         
-        if not ip_accounts:
-            ip_accounts = [
-                {'number': '40802810000000009773', 'bank': 'ООО "ВБ Банк"', 'bik': '044525450'},
-                {'number': '40802810100000851604', 'bank': 'ООО "ОЗОН БАНК"', 'bik': '044525068'},
-            ]
-        
+        # Формируем полную отчетность
         kudir_path, decl_excel, decl_xml, total_income, tax_payable = generate_report(
             all_ops, session.ens_data, OUTPUT_DIR, user_id,
-            kudir_template, decl_template, inn, fio, oktmo, ip_accounts, okved, phone
+            kudir_template, decl_template, inn, fio, oktmo, ip_accounts, phone, tax_object
         )
         
         await update.message.reply_text(
@@ -286,23 +349,65 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     text = update.message.text.strip()
     
-    if session.awaiting_okved:
-        okved_digits = ''.join(ch for ch in text if ch.isdigit())
-        if okved_digits:
-            session.okved = okved_digits
-            session.awaiting_okved = False
-            await update.message.reply_text(f"✅ ОКВЭД сохранен: {okved_digits}\n\n📞 Теперь укажите контактный телефон:")
-            session.awaiting_phone = True
+    # Обработка ФИО
+    if session.awaiting_fio:
+        if len(text.split()) >= 2:
+            session.fio = text
+            session.awaiting_fio = False
+            await update.message.reply_text(f"✅ ФИО сохранено: {text}")
+            await check_missing_data(update, session)
         else:
-            await update.message.reply_text("❌ Введите цифры ОКВЭД (например, 4791)")
+            await update.message.reply_text("❌ Введите полное ФИО (Фамилия Имя Отчество)")
         return
     
+    # Обработка ИНН
+    if session.awaiting_inn:
+        inn_digits = ''.join(ch for ch in text if ch.isdigit())
+        if len(inn_digits) == 12:
+            session.inn = inn_digits
+            session.awaiting_inn = False
+            await update.message.reply_text(f"✅ ИНН сохранен: {inn_digits}")
+            await check_missing_data(update, session)
+        else:
+            await update.message.reply_text("❌ ИНН должен содержать 12 цифр")
+        return
+    
+    # Обработка ОКТМО
+    if session.awaiting_oktmo:
+        oktmo_digits = ''.join(ch for ch in text if ch.isdigit())
+        if len(oktmo_digits) >= 8:
+            session.oktmo = oktmo_digits[:8]
+            session.awaiting_oktmo = False
+            await update.message.reply_text(f"✅ ОКТМО сохранен: {session.oktmo}")
+            await check_missing_data(update, session)
+        else:
+            await update.message.reply_text("❌ ОКТМО должен содержать 8 или 11 цифр")
+        return
+    
+    # Обработка объекта налогообложения
+    if session.awaiting_tax_object:
+        if text == "1":
+            session.tax_object = 1
+            session.awaiting_tax_object = False
+            await update.message.reply_text("✅ Выбран объект: Доходы (ставка 6%)")
+            await check_missing_data(update, session)
+        elif text == "2":
+            session.tax_object = 2
+            session.awaiting_tax_object = False
+            await update.message.reply_text("✅ Выбран объект: Доходы минус расходы (ставка 15%)")
+            await check_missing_data(update, session)
+        else:
+            await update.message.reply_text("❌ Введите 1 или 2")
+        return
+    
+    # Обработка телефона
     if session.awaiting_phone:
         phone_digits = ''.join(ch for ch in text if ch.isdigit())
         if phone_digits:
             session.phone = phone_digits
             session.awaiting_phone = False
-            await update.message.reply_text(f"✅ Телефон сохранен: {phone_digits}\n\n🔄 Введите /report")
+            await update.message.reply_text(f"✅ Телефон сохранен: {phone_digits}")
+            await check_missing_data(update, session)
         else:
             await update.message.reply_text("❌ Введите номер телефона цифрами")
         return
@@ -321,9 +426,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 *Помощь*\n\n"
         "/start — начать\n"
-        "/report — сформировать отчетность\n"
         "/reset — сбросить данные\n"
-        "/help — справка",
+        "/help — справка\n\n"
+        "💰 *Тарифы:*\n"
+        "• Демо — бесплатно\n"
+        "• Полная версия — 500 ₽\n\n"
+        "По вопросам оплаты пишите @support",
         parse_mode="Markdown"
     )
 
@@ -336,7 +444,6 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
