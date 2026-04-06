@@ -33,7 +33,6 @@ user_sessions = {}
 
 
 def load_users():
-    """Загружает данные пользователей из файла"""
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -41,13 +40,11 @@ def load_users():
 
 
 def save_users(users):
-    """Сохраняет данные пользователей в файл"""
     with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
 
 
 def get_user_data(user_id):
-    """Получает данные пользователя, создает если нет"""
     users = load_users()
     user_id_str = str(user_id)
     if user_id_str not in users:
@@ -64,7 +61,6 @@ def get_user_data(user_id):
 
 
 def update_user_data(user_id, **kwargs):
-    """Обновляет данные пользователя"""
     users = load_users()
     user_id_str = str(user_id)
     if user_id_str not in users:
@@ -75,7 +71,8 @@ def update_user_data(user_id, **kwargs):
 
 
 def can_use_full_version(user_id):
-    """Проверяет, есть ли активная подписка"""
+    if is_admin(user_id):
+        return True
     user_data = get_user_data(user_id)
     if user_data.get("subscription_until"):
         try:
@@ -88,14 +85,12 @@ def can_use_full_version(user_id):
 
 
 def get_demo_attempts_left(user_id):
-    """Возвращает количество оставшихся демо-попыток"""
     user_data = get_user_data(user_id)
     attempts = user_data.get("demo_attempts", 0)
     return max(0, 3 - attempts)
 
 
 def use_demo_attempt(user_id):
-    """Использовать одну демо-попытку"""
     user_data = get_user_data(user_id)
     attempts = user_data.get("demo_attempts", 0) + 1
     update_user_data(user_id, demo_attempts=attempts)
@@ -132,7 +127,6 @@ def detect_bank_name(filename):
 
 
 def get_main_keyboard(user_id):
-    """Главная клавиатура с кнопками меню"""
     buttons = [
         [KeyboardButton("Новая декларация")],
         [KeyboardButton("Мой статус"), KeyboardButton("Связь с админом")]
@@ -211,11 +205,10 @@ class UserSession:
         self.awaiting_inn = False
 
 
-async def notify_admin(context, text, reply_markup=None):
-    """Отправляет уведомление всем админам"""
+async def notify_admin(context, text):
     for admin_id in ADMIN_IDS:
         try:
-            await context.bot.send_message(chat_id=admin_id, text=text, reply_markup=reply_markup)
+            await context.bot.send_message(chat_id=admin_id, text=text)
         except Exception as e:
             print(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
@@ -234,13 +227,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[user_id] = UserSession(user_id)
     
     user_info = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name or ''}"
-    await notify_admin(
-        context,
-        f"Новый пользователь!\n\n"
-        f"👤 {user_info}\n"
-        f"🆔 ID: {user_id}\n"
-        f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
-    )
+    await notify_admin(context, f"Новый пользователь!\n\n👤 {user_info}\n🆔 ID: {user_id}")
     
     await update.message.reply_text(
         "🤖 *Бот для подготовки отчетности ИП на УСН (Доходы 6%)*\n\n"
@@ -275,16 +262,21 @@ async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if can_use_full_version(user_id):
-        user_data = get_user_data(user_id)
-        until = datetime.fromisoformat(user_data["subscription_until"])
-        days_left = (until - datetime.now()).days
-        await update.message.reply_text(
-            f"✅ *Ваш статус:* активная подписка\n\n"
-            f"📅 Действует до: {until.strftime('%d.%m.%Y')}\n"
-            f"📊 Осталось дней: {days_left}\n\n"
-            f"💰 Стоимость продления: {SUBSCRIPTION_PRICE}₽/мес",
-            parse_mode="Markdown"
-        )
+        if is_admin(user_id):
+            await update.message.reply_text(
+                "✅ *Ваш статус:* администратор (полный доступ)",
+                parse_mode="Markdown"
+            )
+        else:
+            user_data = get_user_data(user_id)
+            until = datetime.fromisoformat(user_data["subscription_until"])
+            days_left = (until - datetime.now()).days
+            await update.message.reply_text(
+                f"✅ *Ваш статус:* активная подписка\n\n"
+                f"📅 Действует до: {until.strftime('%d.%m.%Y')}\n"
+                f"📊 Осталось дней: {days_left}",
+                parse_mode="Markdown"
+            )
     else:
         attempts_left = get_demo_attempts_left(user_id)
         await update.message.reply_text(
@@ -292,9 +284,8 @@ async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 Осталось попыток: {attempts_left} из 3\n\n"
             f"💰 *Полная версия:* {SUBSCRIPTION_PRICE}₽/мес\n"
             f"✅ Все разделы декларации\n"
-            f"✅ XML для загрузки в ЛК ФНС\n"
-            f"✅ Приоритетная поддержка\n\n"
-            f"📞 Для оплаты свяжитесь с администратором: /help",
+            f"✅ XML для загрузки в ЛК ФНС\n\n"
+            f"📞 Для оплаты свяжитесь с администратором",
             parse_mode="Markdown"
         )
 
@@ -305,15 +296,12 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await notify_admin(
         context,
-        f"Запрос связи от пользователя\n\n"
-        f"👤 {user.first_name} {user.last_name or ''}\n"
-        f"🆔 ID: {user_id}"
+        f"Запрос связи от пользователя\n\n👤 {user.first_name} {user.last_name or ''}\n🆔 ID: {user_id}"
     )
     
     await update.message.reply_text(
         "📞 *Связь с администратором*\n\n"
-        "Ваш запрос отправлен. Администратор свяжется с вами в ближайшее время.\n\n"
-        "По вопросам оплаты и технической поддержки: @support",
+        "Ваш запрос отправлен. Администратор свяжется с вами.",
         parse_mode="Markdown"
     )
 
@@ -322,12 +310,12 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
-        await update.message.reply_text("⛔ У вас нет доступа к админ панели")
+        await update.message.reply_text("⛔ У вас нет доступа")
         return
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Список пользователей", callback_data="admin_users")],
-        [InlineKeyboardButton("Дать доступ пользователю", callback_data="admin_add_access")],
+        [InlineKeyboardButton("Дать доступ", callback_data="admin_add_access")],
         [InlineKeyboardButton("Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")],
     ])
@@ -353,8 +341,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = load_users()
         paid = 0
         demo = 0
-        text = "📊 *Список пользователей*\n\n"
-        
         for uid, data in users.items():
             if data.get("subscription_until"):
                 try:
@@ -368,10 +354,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 demo += 1
         
-        text += f"✅ *Платных:* {paid}\n"
-        text += f"⚠️ *Демо:* {demo}\n"
-        text += f"📊 *Всего:* {len(users)}"
-        
+        text = f"📊 *Статистика*\n\n✅ Платных: {paid}\n⚠️ Демо: {demo}\n📊 Всего: {len(users)}"
         await query.edit_message_text(text, parse_mode="Markdown")
         
         back_keyboard = InlineKeyboardMarkup([
@@ -390,17 +373,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data == "admin_stats":
         users = load_users()
-        total_operations = 0
-        
+        total_ops = 0
         for uid in users:
             if uid in user_sessions:
-                total_operations += len(user_sessions[uid].bank_operations)
+                total_ops += len(user_sessions[uid].bank_operations)
         
-        text = f"📈 *Статистика*\n\n"
-        text += f"👥 Пользователей: {len(users)}\n"
-        text += f"💳 Операций обработано: {total_operations}\n"
-        text += f"💰 Стоимость подписки: {SUBSCRIPTION_PRICE}₽/мес"
-        
+        text = f"📈 *Статистика*\n\n👥 Пользователей: {len(users)}\n💳 Операций: {total_ops}\n💰 Цена: {SUBSCRIPTION_PRICE}₽/мес"
         await query.edit_message_text(text, parse_mode="Markdown")
         
         back_keyboard = InlineKeyboardMarkup([
@@ -411,15 +389,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "admin_broadcast":
         context.user_data['broadcast_mode'] = True
         await query.edit_message_text(
-            "📢 *Рассылка*\n\n"
-            "Введите сообщение для рассылки всем пользователям:",
+            "📢 *Рассылка*\n\nВведите сообщение для рассылки:",
             parse_mode="Markdown"
         )
     
     elif query.data == "admin_back":
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Список пользователей", callback_data="admin_users")],
-            [InlineKeyboardButton("Дать доступ пользователю", callback_data="admin_add_access")],
+            [InlineKeyboardButton("Дать доступ", callback_data="admin_add_access")],
             [InlineKeyboardButton("Статистика", callback_data="admin_stats")],
             [InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")],
         ])
@@ -458,9 +435,9 @@ async def add_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"🎉 *Вам открыт полный доступ к боту до {until.strftime('%d.%m.%Y')}!*\n\n"
+            text=f"🎉 *Вам открыт полный доступ до {until.strftime('%d.%m.%Y')}!*\n\n"
                  f"Теперь вы можете получить полную декларацию с XML.\n"
-                 f"Просто отправьте /new и загрузите выписки.",
+                 f"Отправьте /new и загрузите выписки.",
             parse_mode="Markdown"
         )
     except:
@@ -486,7 +463,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if filename.endswith(('.xlsx', '.xls')):
             bank_name = detect_bank_name(filename)
-            await update.message.reply_text(f"📥 Обрабатываю выписку из {bank_name}...")
             operations, inn, fio, accounts = parse_bank_statement(tmp_path)
             
             if operations:
@@ -494,12 +470,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 total = sum(op['amount'] for op in operations)
                 total_all = sum(op['amount'] for op in session.bank_operations)
                 
-                msg = f"✅ {bank_name}: {len(operations)} операций, {total:,.2f} ₽\n📊 Всего: {len(session.bank_operations)} операций на {total_all:,.2f} ₽\n\nБудут еще выписки из банков? Если нет, пришлите выписку из ЕНС"
-                
+                msg = f"✅ {bank_name}: {len(operations)} операций, {total:,.2f} ₽\n📊 Всего: {len(session.bank_operations)} операций на {total_all:,.2f} ₽"
                 await update.message.reply_text(msg, reply_markup=get_main_keyboard(user_id))
-                
-                if session.ens_loaded:
-                    await ask_missing_data(update, session)
             else:
                 await update.message.reply_text(f"⚠️ В выписке из {bank_name} не найдено доходов")
         
@@ -508,20 +480,24 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ens_data = parse_ens_statement(tmp_path)
             session.set_ens_data(ens_data)
             
+            # Подсчитываем итоги
+            total_income = sum(op['amount'] for op in session.bank_operations)
             paid_in_2025 = any(d.year == 2025 for d in ens_data.get('insurance_paid_dates', []))
-            oktmo = session.oktmo if session.oktmo else "не найден"
-            usn_payments = ens_data.get('usn_payments', [])
             
             msg = f"✅ Выписка ЕНС обработана!\n\n"
-            msg += f"📌 Страховые взносы:\n"
-            msg += f"• Начислено: {ens_data['insurance_accrued']:,.2f} ₽\n"
-            msg += f"• Уплачено: {ens_data['insurance_paid']:,.2f} ₽\n"
+            msg += f"📊 *Итог по банковским выпискам:*\n"
+            msg += f"• Количество файлов: {len(session.bank_files)}\n"
+            msg += f"• Доход за 2025: {total_income:,.2f} ₽\n\n"
+            msg += f"📌 *Данные из ЕНС:*\n"
+            msg += f"• Начислено взносов: {ens_data['insurance_accrued']:,.2f} ₽\n"
+            msg += f"• Уплачено взносов: {ens_data['insurance_paid']:,.2f} ₽\n"
             msg += f"• Уплачено в 2025: {'Да' if paid_in_2025 else 'Нет'}\n"
-            msg += f"• ОКТМО: {oktmo}\n"
-            msg += f"• Авансов по УСН: {len(usn_payments)}\n"
+            msg += f"• Авансов по УСН: {len(ens_data['usn_payments'])}\n"
+            msg += f"• ОКТМО: {session.oktmo if session.oktmo else 'не найден'}\n\n"
             
             await update.message.reply_text(msg, reply_markup=get_main_keyboard(user_id))
             
+            # Переходим к сбору недостающих данных
             await ask_missing_data(update, session)
         
         else:
@@ -536,16 +512,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_missing_data(update: Update, session):
-    if not session.bank_operations:
-        return
-    if not session.ens_loaded:
-        return
+    """Спрашивает недостающие данные после загрузки ЕНС"""
     
     if not session.phone:
         session.awaiting_phone = True
         await update.message.reply_text(
-            "Последний вопрос, чтобы заполнить декларацию: Укажите контактный телефон\n"
-            "Например: 81234567890"
+            "📞 *Укажите контактный телефон*\n"
+            "Например: 81234567890",
+            parse_mode="Markdown"
         )
         return
     
@@ -604,7 +578,7 @@ async def generate_and_send_report(update: Update, session):
                 await update.message.reply_text(
                     f"❌ *Лимит демо-попыток исчерпан!*\n\n"
                     f"💰 Приобретите полную версию за {SUBSCRIPTION_PRICE}₽/мес\n"
-                    f"📞 Для оплаты свяжитесь с администратором: /help",
+                    f"📞 Для оплаты свяжитесь с администратором",
                     parse_mode="Markdown"
                 )
                 return
@@ -627,26 +601,26 @@ async def generate_and_send_report(update: Update, session):
             )
             
             with open(decl_excel, 'rb') as f:
-                await update.message.reply_document(f, filename="Декларация_УСН_2025.xlsx", caption="📝 Полная декларация по УСН")
+                await update.message.reply_document(f, filename="Декларация_УСН_2025.xlsx", caption="📝 Полная декларация")
             
             if decl_xml and os.path.exists(decl_xml):
                 with open(decl_xml, 'rb') as f:
-                    await update.message.reply_document(f, filename="declaration_usn_2025.xml", caption="📎 XML для загрузки в ЛК ФНС")
+                    await update.message.reply_document(f, filename="declaration_usn_2025.xml", caption="📎 XML для ЛК ФНС")
         else:
             remaining = get_demo_attempts_left(user_id)
             await update.message.reply_text(
                 f"⚠️ *Демо-версия декларации*\n\n"
                 f"📊 Доход за 2025: {total_income:,.2f} ₽\n"
-                f"🔒 *Сумма налога скрыта (limited)*\n\n"
+                f"🔒 *Сумма налога скрыта*\n\n"
                 f"📌 Чтобы получить полную декларацию с XML:\n"
                 f"💰 {SUBSCRIPTION_PRICE}₽/мес\n"
-                f"📞 Свяжитесь с администратором: /help\n\n"
+                f"📞 Свяжитесь с администратором\n\n"
                 f"ℹ️ Осталось попыток: {remaining} из 3",
                 parse_mode="Markdown"
             )
             
             with open(decl_excel, 'rb') as f:
-                await update.message.reply_document(f, filename="Декларация_УСН_2025_ДЕМО.xlsx", caption="📝 Демо-версия декларации")
+                await update.message.reply_document(f, filename="Декларация_УСН_2025_ДЕМО.xlsx", caption="📝 Демо-версия")
     
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
@@ -713,7 +687,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ ОКТМО сохранен: {session.oktmo}")
             await ask_missing_data(update, session)
         else:
-            await update.message.reply_text("❌ ОКТМО должен содержать 8 или 11 цифр")
+            await update.message.reply_text("❌ ОКТМО должен содержать 8 цифр")
         return
     
     if session.awaiting_fio:
@@ -744,8 +718,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/new — новая декларация\n"
         "/status — мой статус\n"
         "/help — справка\n\n"
-        "📞 *По вопросам оплаты и поддержки:*\n"
-        "Свяжитесь с администратором через кнопку 'Связь с админом'",
+        "📞 По вопросам оплаты: кнопка 'Связь с админом'",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard(user_id)
     )
