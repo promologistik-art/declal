@@ -99,7 +99,7 @@ def use_demo_attempt(user_id):
     user_data = get_user_data(user_id)
     attempts = user_data.get("demo_attempts", 0) + 1
     update_user_data(user_id, demo_attempts=attempts)
-    return 3 - attempts  # осталось попыток
+    return 3 - attempts
 
 
 def is_admin(user_id):
@@ -134,11 +134,11 @@ def detect_bank_name(filename):
 def get_main_keyboard(user_id):
     """Главная клавиатура с кнопками меню"""
     buttons = [
-        [KeyboardButton("🚀 Новая декларация")],
-        [KeyboardButton("ℹ️ Мой статус"), KeyboardButton("📞 Связь с админом")]
+        [KeyboardButton("Новая декларация")],
+        [KeyboardButton("Мой статус"), KeyboardButton("Связь с админом")]
     ]
     if is_admin(user_id):
-        buttons.append([KeyboardButton("⚙️ Админ панель")])
+        buttons.append([KeyboardButton("Админ панель")])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 
@@ -224,7 +224,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = update.effective_user
     
-    # Сохраняем информацию о пользователе
     update_user_data(
         user_id,
         username=user.username,
@@ -232,18 +231,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_name=user.last_name
     )
     
-    # Создаем сессию
     user_sessions[user_id] = UserSession(user_id)
     
-    # Уведомляем админов о новом пользователе
     user_info = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name or ''}"
     await notify_admin(
         context,
-        f"🆕 *Новый пользователь!*\n\n"
+        f"Новый пользователь!\n\n"
         f"👤 {user_info}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-        parse_mode="Markdown"
+        f"🆔 ID: {user_id}\n"
+        f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
     )
     
     await update.message.reply_text(
@@ -251,8 +247,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1️⃣ Загрузите выписки с расчетных счетов (Excel)\n"
         "2️⃣ Загрузите выписку с ЕНС (CSV)\n\n"
         "📌 *Сроки за 2025 год:*\n"
-        "• Декларацию сдать до *27 апреля 2026*\n"
-        "• Налог уплатить до *28 апреля 2026*\n\n"
+        "• Декларацию сдать до 27 апреля 2026\n"
+        "• Налог уплатить до 28 апреля 2026\n\n"
         f"💰 *Тарифы:*\n"
         f"• Демо: 3 попытки (только Титул + Раздел 1.1)\n"
         f"• Полная версия: {SUBSCRIPTION_PRICE}₽/мес (все разделы + XML)",
@@ -262,14 +258,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def new_declaration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начинает новую декларацию"""
     user_id = update.effective_user.id
     
     if user_id in user_sessions:
         user_sessions[user_id].reset()
     
     await update.message.reply_text(
-        "🔄 Начинаем новую декларацию!\n\n"
+        "Начинаем новую декларацию!\n\n"
         "1️⃣ Загрузите выписки с расчетных счетов (Excel)\n"
         "2️⃣ Загрузите выписку с ЕНС (CSV)",
         reply_markup=get_main_keyboard(user_id)
@@ -277,7 +272,6 @@ async def new_declaration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает статус подписки пользователя"""
     user_id = update.effective_user.id
     
     if can_use_full_version(user_id):
@@ -306,17 +300,14 @@ async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Связь с администратором"""
     user_id = update.effective_user.id
     user = update.effective_user
     
     await notify_admin(
         context,
-        f"📞 *Запрос связи от пользователя*\n\n"
+        f"Запрос связи от пользователя\n\n"
         f"👤 {user.first_name} {user.last_name or ''}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-        parse_mode="Markdown"
+        f"🆔 ID: {user_id}"
     )
     
     await update.message.reply_text(
@@ -328,7 +319,6 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Админ панель"""
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -336,22 +326,20 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Список пользователей", callback_data="admin_users")],
-        [InlineKeyboardButton("➕ Дать доступ пользователю", callback_data="admin_add_access")],
-        [InlineKeyboardButton("📈 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("Список пользователей", callback_data="admin_users")],
+        [InlineKeyboardButton("Дать доступ пользователю", callback_data="admin_add_access")],
+        [InlineKeyboardButton("Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")],
     ])
     
     await update.message.reply_text(
-        "⚙️ *Админ панель*\n\n"
-        "Выберите действие:",
+        "⚙️ *Админ панель*\n\nВыберите действие:",
         parse_mode="Markdown",
         reply_markup=keyboard
     )
 
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка callback-запросов от админ панели"""
     query = update.callback_query
     await query.answer()
     
@@ -386,7 +374,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(text, parse_mode="Markdown")
         
-        # Кнопка назад
         back_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="admin_back")]
         ])
@@ -396,8 +383,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📝 *Добавление доступа*\n\n"
             "Введите команду:\n"
-            `/add <user_id> <days>\n\n`
-            "Пример: `/add 123456789 30`",
+            "/add <user_id> <days>\n\n"
+            "Пример: /add 123456789 30",
             parse_mode="Markdown"
         )
     
@@ -431,10 +418,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data == "admin_back":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📊 Список пользователей", callback_data="admin_users")],
-            [InlineKeyboardButton("➕ Дать доступ пользователю", callback_data="admin_add_access")],
-            [InlineKeyboardButton("📈 Статистика", callback_data="admin_stats")],
-            [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("Список пользователей", callback_data="admin_users")],
+            [InlineKeyboardButton("Дать доступ пользователю", callback_data="admin_add_access")],
+            [InlineKeyboardButton("Статистика", callback_data="admin_stats")],
+            [InlineKeyboardButton("Рассылка", callback_data="admin_broadcast")],
         ])
         await query.edit_message_text(
             "⚙️ *Админ панель*\n\nВыберите действие:",
@@ -444,7 +431,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Добавляет подписку пользователю (только для админов)"""
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -456,9 +442,8 @@ async def add_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days = int(context.args[1])
     except (IndexError, ValueError):
         await update.message.reply_text(
-            "❌ Использование: `/add <user_id> <days>`\n"
-            "Пример: `/add 123456789 30`",
-            parse_mode="Markdown"
+            "❌ Использование: /add <user_id> <days>\n"
+            "Пример: /add 123456789 30"
         )
         return
     
@@ -466,12 +451,10 @@ async def add_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_user_data(target_user_id, subscription_until=until.isoformat())
     
     await update.message.reply_text(
-        f"✅ Пользователю `{target_user_id}` добавлен доступ на {days} дней\n"
-        f"📅 Действует до: {until.strftime('%d.%m.%Y')}",
-        parse_mode="Markdown"
+        f"✅ Пользователю {target_user_id} добавлен доступ на {days} дней\n"
+        f"📅 Действует до: {until.strftime('%d.%m.%Y')}"
     )
     
-    # Уведомляем пользователя
     try:
         await context.bot.send_message(
             chat_id=target_user_id,
@@ -553,8 +536,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_missing_data(update: Update, session):
-    """Спрашивает недостающие данные после загрузки всех выписок"""
-    
     if not session.bank_operations:
         return
     if not session.ens_loaded:
@@ -564,8 +545,7 @@ async def ask_missing_data(update: Update, session):
         session.awaiting_phone = True
         await update.message.reply_text(
             "Последний вопрос, чтобы заполнить декларацию: Укажите контактный телефон\n"
-            "Например: *81234567890*",
-            parse_mode="Markdown"
+            "Например: 81234567890"
         )
         return
     
@@ -574,7 +554,7 @@ async def ask_missing_data(update: Update, session):
         await update.message.reply_text(
             "📝 *Укажите код ОКТМО*\n"
             "Его можно найти в выписке ЕНС или на сайте ФНС\n\n"
-            "Например: *36701000*",
+            "Например: 36701000",
             parse_mode="Markdown"
         )
         return
@@ -583,7 +563,7 @@ async def ask_missing_data(update: Update, session):
         session.awaiting_fio = True
         await update.message.reply_text(
             "📝 *Укажите ФИО полностью*\n"
-            "Например: *Иванов Иван Иванович*",
+            "Например: Иванов Иван Иванович",
             parse_mode="Markdown"
         )
         return
@@ -593,7 +573,6 @@ async def ask_missing_data(update: Update, session):
 
 
 async def generate_and_send_report(update: Update, session):
-    """Формирует и отправляет декларацию"""
     user_id = session.user_id
     
     try:
@@ -617,17 +596,15 @@ async def generate_and_send_report(update: Update, session):
         ip_accounts = session.ip_accounts if session.ip_accounts else []
         phone = session.phone if session.phone else ""
         
-        # Проверяем, полная версия или демо
         is_full = can_use_full_version(user_id)
         
         if not is_full:
-            # Проверяем демо-попытки
             attempts_left = use_demo_attempt(user_id)
             if attempts_left < 0:
                 await update.message.reply_text(
-                    "❌ *Лимит демо-попыток исчерпан!*\n\n"
+                    f"❌ *Лимит демо-попыток исчерпан!*\n\n"
                     f"💰 Приобретите полную версию за {SUBSCRIPTION_PRICE}₽/мес\n"
-                    "📞 Для оплаты свяжитесь с администратором: /help",
+                    f"📞 Для оплаты свяжитесь с администратором: /help",
                     parse_mode="Markdown"
                 )
                 return
@@ -644,17 +621,19 @@ async def generate_and_send_report(update: Update, session):
                 f"📊 Доход за 2025: {total_income:,.2f} ₽\n"
                 f"💰 Налог к уплате: {tax_payable:,.2f} ₽\n\n"
                 f"⚠️ *Проверьте правильность указанных данных (желтые ячейки)*\n\n"
-                f"📌 Сдать декларацию до *27 апреля 2026*\n"
-                f"📌 Уплатить налог до *28 апреля 2026*",
+                f"📌 Сдать декларацию до 27 апреля 2026\n"
+                f"📌 Уплатить налог до 28 апреля 2026",
                 parse_mode="Markdown"
             )
             
             with open(decl_excel, 'rb') as f:
                 await update.message.reply_document(f, filename="Декларация_УСН_2025.xlsx", caption="📝 Полная декларация по УСН")
             
-            with open(decl_xml, 'rb') as f:
-                await update.message.reply_document(f, filename="declaration_usn_2025.xml", caption="📎 XML для загрузки в ЛК ФНС")
+            if decl_xml and os.path.exists(decl_xml):
+                with open(decl_xml, 'rb') as f:
+                    await update.message.reply_document(f, filename="declaration_usn_2025.xml", caption="📎 XML для загрузки в ЛК ФНС")
         else:
+            remaining = get_demo_attempts_left(user_id)
             await update.message.reply_text(
                 f"⚠️ *Демо-версия декларации*\n\n"
                 f"📊 Доход за 2025: {total_income:,.2f} ₽\n"
@@ -662,7 +641,7 @@ async def generate_and_send_report(update: Update, session):
                 f"📌 Чтобы получить полную декларацию с XML:\n"
                 f"💰 {SUBSCRIPTION_PRICE}₽/мес\n"
                 f"📞 Свяжитесь с администратором: /help\n\n"
-                f"ℹ️ Осталось попыток: {get_demo_attempts_left(user_id)} из 3",
+                f"ℹ️ Осталось попыток: {remaining} из 3",
                 parse_mode="Markdown"
             )
             
@@ -679,21 +658,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     
-    # Обработка команд через кнопки
-    if text == "🚀 Новая декларация":
+    if text == "Новая декларация":
         await new_declaration(update, context)
         return
-    elif text == "ℹ️ Мой статус":
+    elif text == "Мой статус":
         await my_status(update, context)
         return
-    elif text == "📞 Связь с админом":
+    elif text == "Связь с админом":
         await contact_admin(update, context)
         return
-    elif text == "⚙️ Админ панель":
+    elif text == "Админ панель":
         await admin_panel(update, context)
         return
     
-    # Обработка рассылки от админа
     if context.user_data.get('broadcast_mode') and is_admin(user_id):
         users = load_users()
         success = 0
@@ -781,7 +758,6 @@ def main():
     
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("new", new_declaration))
     app.add_handler(CommandHandler("status", my_status))
@@ -789,7 +765,6 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("add", add_subscription))
     
-    # Обработчики
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(admin_callback))
