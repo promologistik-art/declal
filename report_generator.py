@@ -59,6 +59,12 @@ def write_amount_digits(ws, row, start_col, amount):
         if i < 12:
             write_digit(ws, row, start_col + i, int(digit))
 
+def write_limited_text(ws, row, start_col):
+    """Записывает текст 'limited' в ячейки (для демо-версии)"""
+    text = "limited"
+    for i, char in enumerate(text):
+        write_letter(ws, row, start_col + i, char)
+
 def write_phone_by_letters(ws, phone):
     """Телефон: U27, W27, Y27, AA27, AC27, AE27, AG27, AI27, AK27, AM27, AO27"""
     phone_digits = ''.join(ch for ch in str(phone) if ch.isdigit())
@@ -103,7 +109,7 @@ def write_patronymic_by_letters(ws, patronymic):
         col += 2
 
 
-# ========== ДЕКЛАРАЦИЯ (только УСН 6%) ==========
+# ========== ДЕКЛАРАЦИЯ ==========
 
 def write_inn_digit_by_digit_titul(ws, inn):
     """ИНН на листе Титул: Y1, AA1, AC1, AE1, AG1, AI1, AK1, AM1, AO1, AQ1, AS1, AU1"""
@@ -198,11 +204,11 @@ def write_signature_date_section11(ws):
     cell.value = date_str
 
 
-def generate_report(operations, ens_data, output_dir, user_id, decl_template, inn, fio, oktmo, ip_accounts, phone):
-    """Формирует только декларацию (без КУДиР)"""
+def generate_report(operations, ens_data, output_dir, user_id, decl_template, inn, fio, oktmo, ip_accounts, phone, is_full_version=False):
+    """Формирует декларацию (полную или демо-версию)"""
     wb = load_workbook(decl_template)
     
-    # ========== ЛИСТ "Титул" ==========
+    # ========== ЛИСТ "Титул" (общий для обеих версий) ==========
     if "Титул" not in wb.sheetnames:
         raise Exception(f"Лист 'Титул' не найден. Доступные листы: {wb.sheetnames}")
     
@@ -237,7 +243,7 @@ def generate_report(operations, ens_data, output_dir, user_id, decl_template, in
     write_director_last_name_titul(ws_titul, last_name)
     write_signature_date_titul(ws_titul)
     
-    # ========== ЛИСТ "Раздел 1.1" ==========
+    # ========== ЛИСТ "Раздел 1.1" (общий для обеих версий) ==========
     if "Раздел 1.1" not in wb.sheetnames:
         raise Exception(f"Лист 'Раздел 1.1' не найден. Доступные листы: {wb.sheetnames}")
     
@@ -313,10 +319,15 @@ def generate_report(operations, ens_data, output_dir, user_id, decl_template, in
     write_digit(ws_s11, 31, 26, 0)
     
     # Строка 100 - налог к уплате (Z36)
-    if tax_payable > 0:
-        write_amount_digits(ws_s11, 36, 26, tax_payable)
+    if is_full_version:
+        # Полная версия: показываем сумму налога
+        if tax_payable > 0:
+            write_amount_digits(ws_s11, 36, 26, tax_payable)
+        else:
+            write_digit(ws_s11, 36, 26, 0)
     else:
-        write_digit(ws_s11, 36, 26, 0)
+        # Демо-версия: пишем "limited"
+        write_limited_text(ws_s11, 36, 26)
     
     # Строка 110 - налог к уменьшению (Z41)
     if tax_payable < 0:
@@ -324,45 +335,53 @@ def generate_report(operations, ens_data, output_dir, user_id, decl_template, in
     else:
         write_digit(ws_s11, 41, 26, 0)
     
-    # ========== ЛИСТ "Раздел 2.1.1" ==========
-    if "Раздел 2.1.1" in wb.sheetnames:
-        ws21 = wb["Раздел 2.1.1"]
+    # ========== ЛИСТ "Раздел 2.1.1" (только для полной версии) ==========
+    if is_full_version:
+        if "Раздел 2.1.1" in wb.sheetnames:
+            ws21 = wb["Раздел 2.1.1"]
+            
+            write_inn_digit_by_digit_section21(ws21, inn)
+            write_digit(ws21, 11, 29, 2)
+            
+            write_amount_digits(ws21, 15, 29, cum_income[1])
+            write_amount_digits(ws21, 17, 29, cum_income[2])
+            write_amount_digits(ws21, 19, 29, cum_income[3])
+            write_amount_digits(ws21, 21, 29, cum_income[4])
+            
+            write_amount_digits(ws21, 23, 29, 6)
+            write_amount_digits(ws21, 25, 29, 6)
+            write_amount_digits(ws21, 29, 29, 6)
+            
+            write_amount_digits(ws21, 34, 29, cum_tax[1])
+            write_amount_digits(ws21, 36, 29, cum_tax[2])
+            write_amount_digits(ws21, 38, 29, cum_tax[3])
+            write_amount_digits(ws21, 40, 29, cum_tax[4])
         
-        write_inn_digit_by_digit_section21(ws21, inn)
-        write_digit(ws21, 11, 29, 2)
-        
-        write_amount_digits(ws21, 15, 29, cum_income[1])
-        write_amount_digits(ws21, 17, 29, cum_income[2])
-        write_amount_digits(ws21, 19, 29, cum_income[3])
-        write_amount_digits(ws21, 21, 29, cum_income[4])
-        
-        write_amount_digits(ws21, 23, 29, 6)
-        write_amount_digits(ws21, 25, 29, 6)
-        write_amount_digits(ws21, 29, 29, 6)
-        
-        # Строка 124 - оставляем пустой
-        
-        write_amount_digits(ws21, 34, 29, cum_tax[1])
-        write_amount_digits(ws21, 36, 29, cum_tax[2])
-        write_amount_digits(ws21, 38, 29, cum_tax[3])
-        write_amount_digits(ws21, 40, 29, cum_tax[4])
-    
-    # ========== ЛИСТ "Раздел 2.1.1 (продолжение)" ==========
-    if "Раздел 2.1.1 (продолжение)" in wb.sheetnames:
-        ws21_cont = wb["Раздел 2.1.1 (продолжение)"]
-        
-        write_amount_digits(ws21_cont, 11, 28, cum_deductible[1])
-        write_amount_digits(ws21_cont, 14, 28, cum_deductible[2])
-        write_amount_digits(ws21_cont, 17, 28, cum_deductible[3])
-        write_amount_digits(ws21_cont, 20, 28, cum_deductible[4])
+        # ========== ЛИСТ "Раздел 2.1.1 (продолжение)" ==========
+        if "Раздел 2.1.1 (продолжение)" in wb.sheetnames:
+            ws21_cont = wb["Раздел 2.1.1 (продолжение)"]
+            
+            write_amount_digits(ws21_cont, 11, 28, cum_deductible[1])
+            write_amount_digits(ws21_cont, 14, 28, cum_deductible[2])
+            write_amount_digits(ws21_cont, 17, 28, cum_deductible[3])
+            write_amount_digits(ws21_cont, 20, 28, cum_deductible[4])
+    else:
+        # Демо-версия: удаляем листы Раздел 2.1.1 и Раздел 2.1.1 (продолжение)
+        if "Раздел 2.1.1" in wb.sheetnames:
+            wb.remove(wb["Раздел 2.1.1"])
+        if "Раздел 2.1.1 (продолжение)" in wb.sheetnames:
+            wb.remove(wb["Раздел 2.1.1 (продолжение)"])
     
     # Сохраняем Excel
-    decl_excel = os.path.join(output_dir, f"declaration_{user_id}.xlsx")
+    suffix = "" if is_full_version else "_ДЕМО"
+    decl_excel = os.path.join(output_dir, f"declaration_{user_id}{suffix}.xlsx")
     wb.save(decl_excel)
     
-    # XML
-    decl_xml = os.path.join(output_dir, f"declaration_{user_id}.xml")
-    xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+    # XML только для полной версии
+    decl_xml = None
+    if is_full_version:
+        decl_xml = os.path.join(output_dir, f"declaration_{user_id}.xml")
+        xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Файл xmlns="urn:ФНС-СХД-Декл-УСН-2025-1">
     <Документ>
         <КНД>1152017</КНД>
@@ -409,8 +428,8 @@ def generate_report(operations, ens_data, output_dir, user_id, decl_template, in
         </Раздел2_1_1>
     </Показатели>
 </Файл>'''
-    
-    with open(decl_xml, 'w', encoding='utf-8') as f:
-        f.write(xml)
+        
+        with open(decl_xml, 'w', encoding='utf-8') as f:
+            f.write(xml)
     
     return decl_excel, decl_xml, total_income, tax_payable
